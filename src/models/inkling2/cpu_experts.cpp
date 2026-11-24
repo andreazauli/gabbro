@@ -10,7 +10,7 @@
 #include "basalt/models/inkling2/kernels.hpp"
 #include "models/inkling2/model.hpp"
 
-#include <immintrin.h>
+#include "basalt/platform/compiler.hpp"
 
 #include <algorithm>
 #include <array>
@@ -154,7 +154,7 @@ struct CpuExperts::Impl {
                 continue;
             }
             if (stop.load(std::memory_order_relaxed)) return;
-            _mm_pause();
+            ::basalt::platform::cpu_relax();
             if ((++spins & 63u) != 0) continue;
             const auto now = std::chrono::steady_clock::now();
             if (const uint32_t wk = wakes.load(std::memory_order_acquire); wk != seen) {

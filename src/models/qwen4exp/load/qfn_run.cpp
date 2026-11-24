@@ -217,12 +217,20 @@ int run_engine(Options& o, std::vector<program::GpuCard>& chosen_cards) {
     // whole point of this check.
     // ... and nothing runs on a CPU without AVX2: every CPU expert kernel is AVX2 at least (the AVX-512 ones are
     // chosen above it), and so is ggml-cpu, which the native pack's layout load initializes next.  Refused here, by name, rather than an illegal instruction in the first expert.
+#if !(defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86))
+    // aarch64 (GB10): none of the x86 CPU expert kernels (src/kernels/cpu/portable.cpp). Native (GGUF-type) experts
+    // placed in RAM run on the portable ggml row dots (ggml_cpu_dots_portable.c: correct, slow); the Q2_0 canonical
+    // pack's AVX-512 kernel has no portable form and aborts. On GB10 keep every expert on the GPU.
+    basalt::log::warn("basalt generate", "this CPU has no x86 expert kernels: experts in RAM run on slow portable dots; "
+                      "keep every expert on the GPU");
+#else
     if (!basalt::kernels::cpu::cpu_avx2_ok()) {
         basalt::log::error("basalt generate", "this CPU (%s) does not support AVX2 with FMA and F16C, which this engine's "
                              "CPU expert kernels need",
                      basalt::kernels::cpu::cpu_name().c_str());
         return 2;
     }
+#endif
 
     std::string err;
     // Where the experts live.  The model keeps every quantized tensor in its GGUF form, so its experts run in verify

@@ -265,7 +265,7 @@ model::Result DsModel::plan(const model::LoadRequest& req, core::LoadPlan& reads
     // peer card here rather than failing at its first launch with 'no kernel image'.
     for (int dev : peers) {
         cudaDeviceProp prop{};
-        if (cudaGetDeviceProperties(&prop, dev) == cudaSuccess && prop.major != 0 && !(prop.major == 12 && prop.minor == 0))
+        if (cudaGetDeviceProperties(&prop, dev) == cudaSuccess && prop.major != 0 && !(prop.major == 12 && prop.minor == BASALT_CC_MINOR))
             return {model::Status::Error, "deepseek41: GPU " + std::to_string(dev) + " (" + prop.name +
                                               ") is not sm_120: the DeepSeek peer-tier kernels are built for Blackwell only"};
     }

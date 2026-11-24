@@ -31,15 +31,19 @@ add_library(vision_core STATIC
   ${VISION_ROOT}/src/vision/mrope_positions.cpp
   ${VISION_ROOT}/src/vision/mmproj.cpp
   ${VISION_ROOT}/src/vision/encoder_cpu.cpp
-  ${VISION_ROOT}/src/vision/gemm_cpu.cpp
-  ${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp)
+  ${VISION_ROOT}/src/vision/gemm_cpu.cpp)
 target_include_directories(vision_core PUBLIC ${VISION_ROOT}/include PRIVATE ${VISION_ROOT}/src/vision)
-if(MSVC)
+# aarch64 (DGX Spark / GB10): gemm_cpu.cpp has a NEON tile and no AVX-512 BF16 file is built
+if(CMAKE_SYSTEM_PROCESSOR AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|x64|X64|i[3-6]86|x86|X86)$")
+  # nothing: no ISA flags
+elseif(MSVC)
+  target_sources(vision_core PRIVATE ${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp)
   # /arch: selects the baseline; the intrinsics used below are available to a function that uses them either way.
   set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
   # the AVX-512 BF16 file is only called after a run-time CPU check
   set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
 else()
+  target_sources(vision_core PRIVATE ${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp)
   set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
   # the AVX-512 BF16 file is only called after a run-time CPU check
   set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp

@@ -2,6 +2,10 @@
 #include "basalt/ggml/ggml.h"
 #include "basalt/kernels/cpu/expert_layout.hpp"
 
+#if !(defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86))
+// aarch64 (DGX Spark / GB10): ggml_cpu_dots.c is AVX2-only and is not built; ggml_cpu_dots_portable.c defines
+// ggml_get_type_traits_cpu and the MXFP8 rows instead.
+#else
 extern "C" {
 const ggml_type_traits_cpu* ggml_get_type_traits_cpu_avx2(ggml_type type);
 const ggml_type_traits_cpu* ggml_get_type_traits_cpu_avx512(ggml_type type);
@@ -28,3 +32,4 @@ void ggml_mxfp8_q8_0_rows(int n, const void* w, size_t stride, const float* cons
     else ggml_mxfp8_q8_0_rows_avx2(n, w, stride, prep, nt, out, r0, r1);
 }
 }
+#endif

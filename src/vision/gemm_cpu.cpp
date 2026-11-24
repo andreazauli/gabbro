@@ -3,7 +3,12 @@
 
 #include <algorithm>
 #include <cstring>
+#include "basalt/platform/compiler.hpp"
+#if BASALT_X86
 #include <immintrin.h>
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 #include <thread>
 #include <vector>
 
@@ -19,6 +24,7 @@ inline float bf16_round(float f) {
     return f;
 }
 
+#if BASALT_X86
 inline float hsum(__m256 v) {
     __m128 a = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
     a = _mm_add_ps(a, _mm_movehl_ps(a, a));
@@ -46,6 +52,36 @@ void tile(const float* X, const float* wf, float* Y, int m0, int rows, int n0, i
             Y[(size_t) (m0 + i) * N + n0 + j] = s;
         }
 }
+#else
+// aarch64: the same 4 x 4 tile with two NEON float32x4 accumulators standing in for one __m256.
+void tile(const float* X, const float* wf, float* Y, int m0, int rows, int n0, int ncols, int N, int K) {
+    float32x4_t lo[4][4], hi[4][4];
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j) lo[i][j] = hi[i][j] = vdupq_n_f32(0.f);
+    int k = 0;
+    for (; k + 8 <= K; k += 8) {
+        float32x4_t wl[4], wh[4];
+        for (int j = 0; j < 4; ++j) {
+            wl[j] = vld1q_f32(wf + (size_t) j * K + k);
+            wh[j] = vld1q_f32(wf + (size_t) j * K + k + 4);
+        }
+        for (int i = 0; i < rows; ++i) {
+            const float* xr = X + (size_t) (m0 + i) * K + k;
+            const float32x4_t xl = vld1q_f32(xr), xh = vld1q_f32(xr + 4);
+            for (int j = 0; j < 4; ++j) {
+                lo[i][j] = vfmaq_f32(lo[i][j], xl, wl[j]);
+                hi[i][j] = vfmaq_f32(hi[i][j], xh, wh[j]);
+            }
+        }
+    }
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < ncols; ++j) {
+            float s = vaddvq_f32(vaddq_f32(lo[i][j], hi[i][j]));
+            for (int kk = k; kk < K; ++kk) s += X[(size_t) (m0 + i) * K + kk] * wf[(size_t) j * K + kk];
+            Y[(size_t) (m0 + i) * N + n0 + j] = s;
+        }
+}
+#endif
 
 template <class LoadRow>
 void run(const float* X, float* Y, int M, int N, int K, int threads, LoadRow load) {
@@ -94,5 +130,11 @@ void gemm_bf16w(const float* X, const uint16_t* W, float* Y, int M, int N, int K
 void gemm_f32w(const float* X, const float* W, float* Y, int M, int N, int K, int threads) {
     run(X, Y, M, N, K, threads, [&](int n, float* dst) { std::memcpy(dst, W + (size_t) n * K, sizeof(float) * K); });
 }
+
+#if !BASALT_X86
+// gemm_cpu_avx512.cpp is x86-only: no AVX512_BF16 here, so gemm_bf16w always takes the fp32 path above.
+bool cpu_has_bf16() { return false; }
+void gemm_bf16_avx512(const float*, const uint16_t*, float*, int, int, int, int) {}
+#endif
 
 }  // namespace basalt::vision

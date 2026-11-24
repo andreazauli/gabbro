@@ -207,7 +207,7 @@ DeviceInfo device_info(int ordinal) {
     int count = 0;
     check(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
     if (count == 0) {
-        throw CudaError("no CUDA device is present; basalt needs an NVIDIA GPU of compute capability 12.0", -1);
+        throw CudaError("no CUDA device is present; basalt was built for compute capability 12." + std::to_string(BASALT_CC_MINOR), -1);
     }
     if (ordinal < 0 || ordinal >= count) {
         throw CudaError("device ordinal " + std::to_string(ordinal) + " is out of range (have " +
@@ -235,9 +235,9 @@ DeviceInfo device_info(int ordinal) {
 
     // The binary holds code for one compute capability only; a card of another compute capability is refused here rather than failing
     // at its first kernel launch.
-    if (d.cc_major != 12 || d.cc_minor != 0) {
+    if (d.cc_major != 12 || d.cc_minor != BASALT_CC_MINOR) {
         throw CudaError("device " + d.name + " reports compute capability " + std::to_string(d.cc_major) + "." +
-                            std::to_string(d.cc_minor) + "; basalt needs an NVIDIA GPU of compute capability 12.0",
+                            std::to_string(d.cc_minor) + "; basalt was built for compute capability 12." + std::to_string(BASALT_CC_MINOR),
                         -1);
     }
     return d;

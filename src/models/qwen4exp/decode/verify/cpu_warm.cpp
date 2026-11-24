@@ -13,11 +13,12 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
-#include <immintrin.h>
+#include "basalt/platform/compiler.hpp"
 
 namespace basalt::core::verify_detail {
 
 // layer `c.layer`'s router rows [e0, e1) on the job's tokens
+#if BASALT_X86
 BASALT_TARGET_AVX2_FMA_F16C void warm_logits(CpuWarm& c, int e0, int e1, const std::atomic<bool>& stop) {
     const int NB = c.n_embd / 32, pt = c.n_tok;
     const uint8_t* R = c.rq.data() + (size_t) c.layer * c.n_expert * (c.n_embd / 2);
@@ -53,6 +54,37 @@ BASALT_TARGET_AVX2_FMA_F16C void warm_logits(CpuWarm& c, int e0, int e1, const s
         }
     }
 }
+#else
+// aarch64: the same Q4 (two nibbles per byte, minus 8) x Q8_1 router dot, written out in scalar form. Integer products
+// per 32-block are exact; the float order differs from the AVX2 version only in the final horizontal sum.
+void warm_logits(CpuWarm& c, int e0, int e1, const std::atomic<bool>& stop) {
+    const int NB = c.n_embd / 32, pt = c.n_tok;
+    const uint8_t* R = c.rq.data() + (size_t) c.layer * c.n_expert * (c.n_embd / 2);
+    const float* S = c.rs.data() + (size_t) c.layer * c.n_expert * NB;
+    for (int e = e0; e < e1; ++e) {
+        if (stop.load(std::memory_order_relaxed)) return;
+        float acc[basalt::kernels::kVerifyMaxT] = {};
+        const uint8_t* row = R + (size_t) e * (c.n_embd / 2);
+        for (int b = 0; b < NB; ++b) {
+            const uint8_t* q = row + b * 16;
+            const float sw = S[(size_t) e * NB + b];
+            for (int t = 0; t < pt; ++t) {
+                const uint8_t* blk = c.xq + ((size_t) t * NB + b) * 36;   // block_q8_1: half d, half s, 32 x int8
+                _Float16 dh;
+                std::memcpy(&dh, blk, 2);
+                const int8_t* x = (const int8_t*) (blk + 4);
+                int32_t p = 0;
+                for (int j = 0; j < 16; ++j) {
+                    p += ((int) (q[j] & 0x0f) - 8) * (int) x[j];        // low nibbles: elements 0..15
+                    p += ((int) (q[j] >> 4) - 8) * (int) x[16 + j];     // high nibbles: elements 16..31
+                }
+                acc[t] += (float) p * (sw * (float) dh);
+            }
+        }
+        for (int t = 0; t < pt; ++t) c.logits[(size_t) t * c.n_expert + e] = acc[t];
+    }
+}
+#endif
 
 // every token's top k (softmax weights over them), summed per predicted expert only the CPU holds; the likeliest
 void warm_select(CpuWarm& c) {
@@ -94,7 +126,7 @@ void warm_job(void* ctx, int w, int W, const std::atomic<bool>& stop) {
     } else {
         while (c.ready.load(std::memory_order_acquire) == 0) {
             if (stop.load(std::memory_order_relaxed)) return;
-            _mm_pause();
+            ::basalt::platform::cpu_relax();
         }
     }
     // this worker's share of the blob, one load per line: the gate and up rows first (computed first), then the down

@@ -208,6 +208,24 @@ private:
         if (clk_ && clk_(h, 2, &c) == 0) s.mem_mhz = (int) c;   // NVML_CLOCK_MEM
         if (maxgen_ && maxgen_(h, &c) == 0) s.pcie_gen = (int) c;
         if (maxwid_ && maxwid_(h, &c) == 0) s.pcie_width = (int) c;
+        // A unified-memory GPU (DGX Spark / GB10) reports neither a framebuffer nor a power limit through NVML: its
+        // memory is the machine's RAM (MemTotal), and its limit is BASALT_GPU_POWER_W when set, else GB10's nominal
+        // 140 W SoC budget (CPU and GPU together; not a limit NVML enforces).
+        if (s.vram_gib <= 0 && s.name.find("GB10") != std::string::npos) {
+            if (std::FILE* f = std::fopen("/proc/meminfo", "r")) {
+                char line[256];
+                while (std::fgets(line, sizeof line, f))
+                    if (std::strncmp(line, "MemTotal:", 9) == 0) {
+                        s.vram_gib = (double) std::strtoull(line + 9, nullptr, 10) / (1024.0 * 1024.0);
+                        break;
+                    }
+                std::fclose(f);
+            }
+        }
+        if (s.power_enforced_w <= 0 && s.name.find("GB10") != std::string::npos) {
+            const char* e = std::getenv("BASALT_GPU_POWER_W");
+            s.power_enforced_w = s.power_limit_w = e != nullptr && std::atof(e) > 0 ? std::atof(e) : 140.0;
+        }
         return s;
     }
     basalt::platform::DynLib lib_;

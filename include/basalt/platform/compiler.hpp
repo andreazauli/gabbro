@@ -1,22 +1,28 @@
 // include/basalt/platform/compiler.hpp - the compiler- and CPU-specific spellings the host code needs, behind
 // one name each, so no source file asks which compiler it is built with.
 //
-// x86-64 only: the engine's CPU kernels are AVX2 / AVX-512. Every function is inline and maps to the one instruction
-// or builtin each compiler gives for it.
+// x86-64: the engine's CPU kernels are AVX2 / AVX-512. Every function is inline and maps to the one instruction
+// or builtin each compiler gives for it. aarch64 (DGX Spark / GB10): the CPUID probes report nothing, so every
+// x86 kernel stays switched off and the portable paths (src/kernels/cpu/portable.cpp) run.
 #pragma once
 
 #include <cstdint>
 
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#define BASALT_X86 1
 #include <immintrin.h>
 #if defined(_MSC_VER)
 #include <intrin.h>
 #else
 #include <cpuid.h>
 #endif
+#else
+#define BASALT_X86 0
+#endif
 
 // Marks a function that uses AVX2, FMA and F16C intrinsics in a translation unit built without those flags. MSVC
 // accepts the intrinsics in any function and needs no marking.
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) || !BASALT_X86
 #define BASALT_TARGET_AVX2_FMA_F16C
 #else
 #define BASALT_TARGET_AVX2_FMA_F16C __attribute__((target("avx2,fma,f16c")))
@@ -34,7 +40,10 @@ inline constexpr bool kPreferMemberwiseVectorAssignment = false;
 
 /// CPUID leaf `leaf`, subleaf `sub`: r[0..3] = EAX, EBX, ECX, EDX.
 inline void cpuid(unsigned leaf, unsigned sub, unsigned (&r)[4]) {
-#if defined(_MSC_VER)
+#if !BASALT_X86
+    (void) leaf; (void) sub;
+    r[0] = r[1] = r[2] = r[3] = 0;   // no CPUID: every leaf reads as absent, so no x86 feature is reported
+#elif defined(_MSC_VER)
     int x[4];
     __cpuidex(x, (int) leaf, (int) sub);
     for (int i = 0; i < 4; ++i) r[i] = (unsigned) x[i];
@@ -45,7 +54,9 @@ inline void cpuid(unsigned leaf, unsigned sub, unsigned (&r)[4]) {
 
 /// XCR0, which says which register state the OS saves (read only after CPUID reports OSXSAVE).
 inline unsigned long long xgetbv0() {
-#if defined(_MSC_VER)
+#if !BASALT_X86
+    return 0;
+#elif defined(_MSC_VER)
     return _xgetbv(0);
 #else
     unsigned lo = 0, hi = 0;
@@ -67,8 +78,31 @@ inline int ctz32(unsigned m) {
 
 /// One iteration of a spin wait: yields the pipeline to the core's SMT sibling. A no-op off x86.
 inline void cpu_relax() {
-#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#if BASALT_X86
     _mm_pause();
+#elif defined(__aarch64__)
+    __asm__ __volatile__("yield" ::: "memory");
+#endif
+}
+
+/// Orders this thread's earlier stores (including write-combining / mapped host memory the GPU reads) before its
+/// later ones: SFENCE on x86, a full-system DMB on aarch64 (the GPU is outside the inner shareable domain).
+inline void store_fence() {
+#if BASALT_X86
+    _mm_sfence();
+#elif defined(__aarch64__)
+    __asm__ __volatile__("dmb sy" ::: "memory");
+#else
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+#endif
+}
+
+/// A read prefetch into the outer cache levels (x86 _MM_HINT_T1).
+inline void prefetch_t1(const void* p) {
+#if BASALT_X86
+    _mm_prefetch((const char*) p, _MM_HINT_T1);
+#else
+    __builtin_prefetch(p, 0, 2);
 #endif
 }
 
@@ -84,7 +118,9 @@ inline float f16_round(float x) {
 
 /// Whether this CPU, and the OS saving its AVX-512 state, can run AVX512_BF16 with AVX512BW.
 inline bool cpu_has_avx512_bf16() {
-#if defined(_MSC_VER)
+#if !BASALT_X86
+    return false;
+#elif defined(_MSC_VER)
     // The same readings GCC's run-time probe takes: the OS has to save the AVX-512 state, and leaf 7 subleaf 0
     // names AVX512BW (EBX bit 30) and AVX512_BF16 (ECX bit 5).
     unsigned r[4];
