@@ -1,0 +1,34 @@
+{
+  "submitter": "gabbro",
+  "date": "2026-11-24",
+  "commit": "a7e22c126f",
+  "preset": "community-1",
+  "model": "Inkling-2-Mini",
+  "gpus": [
+    {
+      "name": "GB10",
+      "vram_gib": 122,
+      "power_w": 140,
+      "pcie": "1.0 x1",
+      "h2d_gbps": 59.3
+    }
+  ],
+  "ram_gib": 122,
+  "ram_gbps": 85.4,
+  "os": "Linux",
+  "quant": "NVFP4",
+  "kv": "int8",
+  "prefill_16k_tps": 3584.5,
+  "prefill_64k_tps": 3012.9,
+  "decode_tps": 106.9,
+  "decode_conv_tps": 66.7,
+  "decode_struct_tps": 130.5,
+  "decode_prose_tps": 56.5,
+  "accept_conv_pct": 53.5,
+  "accept_struct_pct": 96.6,
+  "accept_prose_pct": 37.7,
+  "draft_len_conv": 2.1,
+  "draft_len_struct": 5.8,
+  "draft_len_prose": 1.8,
+  "engine_args": "--gpu 0 --max-context 63233 --kv int8"
+}

@@ -1,3 +1,7 @@
+> **gabbro** is a port of Basalt to the **NVIDIA DGX Spark (GB10: aarch64, sm_121, unified memory)**, branch `gb10-arm64`.
+> What changed, results and limits: [GABBRO.md](GABBRO.md). Everything below is upstream Basalt's README; all credit to
+> [Basalt](https://github.com/jesdga95/basalt) (MIT) and [Strata](https://github.com/Niko1221/Strata) (MIT).
+
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/basalt-lockup-dark.png"><img src="assets/basalt-lockup-light.png" alt="Basalt" width="480"></picture></p>
 
 Basalt is a local inference engine for large language models: **Qwen3.8-Flash-Next**, **DeepSeek-V4.1-Flash**, **Qwen3.8-27B**, **Hy4-flash** and **Inkling 2 Mini**. It runs
